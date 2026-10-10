@@ -55,8 +55,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          git config --global user.name "pch-bot"
-          git config --global user.email "pch-bot@users.noreply.github.com"
+          git config --global user.name "wth-bot"
+          git config --global user.email "wth-bot@users.noreply.github.com"
           git add history.json || true
           if ! git diff --cached --quiet; then
             git commit -m "bot: update history [skip ci]"
@@ -65,4 +65,3 @@ jobs:
           else
             echo "No changes to commit."
           fi
-
