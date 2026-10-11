@@ -21,6 +21,10 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFo
 CF_ACCOUNT = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CF_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
 CF_MODEL = os.environ.get("CF_IMAGE_MODEL", "").strip() or "@cf/black-forest-labs/flux-2-klein-4b"
+# text + image QA on Cloudflare too (same 10,000 free neurons per day); OpenRouter models stay as fallback
+CF_TEXT_MODEL = os.environ.get("CF_TEXT_MODEL", "").strip() or "@cf/google/gemma-4-26b-a4b-it"
+CF_CHECKER_MODEL = os.environ.get("CF_CHECKER_MODEL", "").strip() or "@cf/qwen/qwen3-30b-a3b-fp8"
+CF_TEXT = os.environ.get("CF_TEXT", "1").strip() == "1" and bool(CF_ACCOUNT and CF_TOKEN)
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 def _models(name, default):
@@ -328,8 +332,82 @@ _REASONING_MODELS = set()   # models whose catalogue entry supports a reasoning 
 _NO_REASON_PARAM = set()   # models that rejected that parameter
 
 
+# neurons per million tokens (input, output) from the Workers AI pricing page; used only for the usage estimate in the log
+CF_RATES = {
+    "@cf/google/gemma-4-26b-a4b-it": (9091, 27273),
+    "@cf/qwen/qwen3-30b-a3b-fp8": (4625, 30475),
+    "@cf/meta/llama-3.1-8b-instruct-fp8-fast": (4119, 34868),
+    "@cf/openai/gpt-oss-20b": (18182, 27273),
+    "@cf/openai/gpt-oss-120b": (31818, 68182),
+}
+_NEURONS = {"text": 0.0, "image": 0.0, "calls": 0}
+_CF_KWARGS_REJECTED = [False]
+
+
+def cf_call(messages, model, temperature=0.3, max_tokens=800):
+    """One Workers AI chat request through the OpenAI-compatible endpoint (also takes image_url parts for vision models)."""
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT}/ai/v1/chat/completions"
+    body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    if not _CF_KWARGS_REJECTED[0]:
+        body["chat_template_kwargs"] = {"enable_thinking": False}  # we want the answer, not paid hidden thinking
+    last = None
+    for _ in range(2):
+        try:
+            r = requests.post(url, headers={"Authorization": f"Bearer {CF_TOKEN}", "Content-Type": "application/json"},
+                              json=body, timeout=150)
+        except requests.RequestException as e:
+            raise ModelBusy(f"{model} network error: {e}")
+        text = r.text[:300]
+        low = text.lower()
+        if r.status_code == 200:
+            try:
+                data = r.json()
+            except ValueError:
+                raise RuntimeError(f"model rejected the request: not JSON: {text[:120]}")
+            if isinstance(data, dict) and isinstance(data.get("result"), dict) and "choices" in data["result"]:
+                data = data["result"]
+            ch = (data.get("choices") or [{}])[0] if isinstance(data, dict) else {}
+            msg = ch.get("message") or {}
+            content = msg.get("content") or ""
+            usage = data.get("usage") or {} if isinstance(data, dict) else {}
+            pt = usage.get("prompt_tokens") or sum(len(str(m.get("content", ""))) for m in messages) // 4
+            ct = usage.get("completion_tokens") or len(content) // 4
+            rin, rout = CF_RATES.get(model, (9091, 27273))
+            n = pt * rin / 1e6 + ct * rout / 1e6
+            _NEURONS["text"] += n
+            _NEURONS["calls"] += 1
+            log(f"[cloudflare] {model} ok ({pt}+{ct} tokens, about {n:.0f} neurons)")
+            if not content.strip():
+                if ch.get("finish_reason") == "length":
+                    raise RuntimeError(f"model rejected: {model} spent the whole {max_tokens}-token limit on hidden reasoning")
+                content = msg.get("reasoning_content") or msg.get("reasoning") or ""
+                if not content.strip():
+                    raise RuntimeError(f"model rejected: {model} returned an empty answer")
+            return content
+        last = f"HTTP {r.status_code}: {text[:200]}"
+        log(f"[cloudflare] {model} failed: {last}")
+        if r.status_code == 429 or "neurons" in low or "daily free allocation" in low or "4006" in low:
+            if "neurons" in low or "allocation" in low or "4006" in low:
+                _BUSY[model] = time.time() + 86400
+                raise ModelBusy(f"{model}: Workers AI daily free allocation used up")
+            _BUSY[model] = time.time() + 120
+            raise ModelBusy(f"{model} is rate limited ({last[:90]})")
+        if r.status_code in (500, 502, 503, 504):
+            _BUSY[model] = time.time() + 300
+            raise ModelBusy(f"{model} is busy ({last[:90]})")
+        if r.status_code == 400 and "chat_template_kwargs" in body and ("chat_template" in low or "enable_thinking" in low or "unknown" in low or "extra" in low):
+            _CF_KWARGS_REJECTED[0] = True
+            body.pop("chat_template_kwargs", None)
+            log("[cloudflare] the thinking switch was rejected, retrying without it")
+            continue
+        raise RuntimeError(f"model rejected the request: {last}")
+    raise RuntimeError(f"model rejected the request: {last}")
+
+
 def or_call(messages, model, temperature=0.3, max_tokens=800, plugins=None):
     """One OpenRouter request. Starts at the next key in the rotation and moves on if a key is out of credit."""
+    if model.startswith("@cf/"):
+        return cf_call(messages, model, temperature, max_tokens)
     if not OR_KEYS:
         raise RuntimeError("no OpenRouter keys configured (secret OPENROUTER_API_KEYS)")
     usable = keys_usable()
@@ -521,17 +599,21 @@ def _demote(model, seconds):
 
 def setup_models():
     global WRITER_MODELS, CHECKER_MODELS, QA_MODELS
-    ranked, vision = discover_models()
-    ranked = [m for m in ranked if not _demoted(m)]
+    ranked, vision = ([], [])
+    if OR_KEYS:
+        ranked, vision = discover_models()
+        ranked = [m for m in ranked if not _demoted(m)]
     paid = _models("PAID_FALLBACK_MODEL", "")  # optional: only used if every free model fails
+    cf_w = [CF_TEXT_MODEL] if CF_TEXT else []
+    cf_c = [CF_CHECKER_MODEL] if CF_TEXT else []
     if not WRITER_MODELS:
-        WRITER_MODELS = list(dict.fromkeys(ranked[:6] + paid))
+        WRITER_MODELS = list(dict.fromkeys(cf_w + ranked[:6] + paid))
     if not CHECKER_MODELS:
         fam = _family(ranked[0]) if ranked else ""
         others = [m for m in ranked if _family(m) != fam][:4]
-        CHECKER_MODELS = list(dict.fromkeys((others or ranked[:4]) + ranked[:2] + paid))
+        CHECKER_MODELS = list(dict.fromkeys(cf_c + (others or ranked[:4]) + ranked[:2] + paid))
     if not QA_MODELS:
-        QA_MODELS = [m for m in vision if not _demoted(m)][:3]
+        QA_MODELS = list(dict.fromkeys(cf_w + [m for m in vision if not _demoted(m)][:3]))
     log("writer models:", WRITER_MODELS[:3], "| checker models:", CHECKER_MODELS[:3], "| image QA models:", QA_MODELS[:2])
 
 
@@ -1287,6 +1369,7 @@ def _cf_image(prompt, w, h):
         if "neurons" in low or "daily free allocation" in low or "4006" in low:
             raise CFQuotaExceeded(f"Workers AI daily free allocation used up: {body[:160]}")
         raise RuntimeError(f"HTTP {r.status_code} {body[:200]}")
+    _NEURONS["image"] += 26.05 * math.ceil(w / 512) * math.ceil(h / 512)  # per output 512x512 tile, rounded up
     if r.headers.get("content-type", "").startswith("image/"):
         return r.content
     data = r.json()
@@ -1598,7 +1681,7 @@ def facebook_due():
 # ----------------------------------------------------------------- main
 def main():
     missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", CF_ACCOUNT), ("CLOUDFLARE_API_TOKEN", CF_TOKEN), ("TELEGRAM_BOT_TOKEN", TG_TOKEN), ("TELEGRAM_CHAT_ID", TG_CHAT),
-                              ("OPENROUTER_API_KEYS", ",".join(OR_KEYS))) if not v]
+                              ("OPENROUTER_API_KEYS", ",".join(OR_KEYS) or ("-" if CF_TEXT else ""))) if not v]
     if missing:
         sys.exit(f"missing env vars: {', '.join(missing)}")
 
@@ -1608,6 +1691,9 @@ def main():
         run()
     finally:
         log(f"OpenRouter keys usable now: {len(keys_usable())}/{len(OR_KEYS)}")
+        tot = _NEURONS["text"] + _NEURONS["image"]
+        log(f"WORKERS AI USAGE THIS RUN (estimate): text {_NEURONS['text']:.0f} + images {_NEURONS['image']:.0f} = {tot:.0f} neurons "
+            f"({_NEURONS['calls']} text calls). Daily free limit 10000. Check the real number in the Cloudflare dashboard.")
         save_keystate()
 
 
