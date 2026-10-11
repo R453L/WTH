@@ -33,19 +33,27 @@ jobs:
       - name: Generate and send post
         run: python bot.py
         env:
+          # images: Cloudflare Workers AI (FLUX.2 klein 4B), free 10,000 neurons per day
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_IMAGE_MODEL: ${{ vars.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-2-klein-4b' }}
-          GEN_SIZE: ${{ vars.GEN_SIZE || '768x960' }}
+          GEN_SIZE: ${{ vars.GEN_SIZE || '816x1024' }}
+          CF_TEXT: ${{ vars.CF_TEXT || '1' }}
+          CF_TEXT_MODEL: ${{ vars.CF_TEXT_MODEL || '@cf/google/gemma-4-26b-a4b-it' }}
+          CF_CHECKER_MODEL: ${{ vars.CF_CHECKER_MODEL || '@cf/qwen/qwen3-30b-a3b-fp8' }}
           IMAGE_CANDIDATES: ${{ vars.IMAGE_CANDIDATES || '2' }}
+          # text (writer, checker, image QA): pool of OpenRouter keys, one per line or comma separated
           OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          # models are chosen automatically (best FREE ones). Set these Variables only to override:
           WRITER_MODEL: ${{ vars.WRITER_MODEL || '' }}
           CHECKER_MODEL: ${{ vars.CHECKER_MODEL || '' }}
           IMAGE_QA_MODEL: ${{ vars.IMAGE_QA_MODEL || '' }}
           PREFER_MODELS: ${{ vars.PREFER_MODELS || '' }}
+          # optional paid safety net, used only if every free model fails (leave empty to never spend credit)
           PAID_FALLBACK_MODEL: ${{ vars.PAID_FALLBACK_MODEL || '' }}
           WEB_CHECK: ${{ vars.WEB_CHECK || '0' }}
           IMAGE_QA: ${{ vars.IMAGE_QA || '1' }}
+          # channels
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
