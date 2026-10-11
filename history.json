@@ -97,5 +97,13 @@
   "year": 1957,
   "style": "pink",
   "country": "Germany"
+ },
+ {
+  "ts": "2026-10-11T18:12+00:00",
+  "topic": "Monte Carlo Rally",
+  "source": "Monte Carlo Rally",
+  "year": "1966",
+  "style": "gold",
+  "country": "Monaco"
  }
 ]
