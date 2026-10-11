@@ -2,14 +2,17 @@
 """Wheels Through History - post bot. Text via a pool of OpenRouter keys (round-robin), images via Cloudflare Workers AI (FLUX.2 klein 4B)."""
 import base64
 import hashlib
+import hmac
 import io
 import json
 import math
 import os
 import random
 import re
+import secrets
 import sys
 import time
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +47,15 @@ FB_PAGE_ID = os.environ.get("FB_PAGE_ID", "").strip()
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "").strip()
 FB_VERSION = os.environ.get("FB_GRAPH_VERSION", "v26.0").strip()
 FB_DISCLOSURE = os.environ.get("FB_DISCLOSURE", "")
+# X (Twitter): optional. Posts only when all four keys are set. The X API is pay-per-use (about $0.015 per post, no links in the text).
+X_API_KEY = os.environ.get("X_API_KEY", "").strip()
+X_API_SECRET = os.environ.get("X_API_SECRET", "").strip()
+X_ACCESS_TOKEN = os.environ.get("X_ACCESS_TOKEN", "").strip()
+X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET", "").strip()
+try:
+    X_EVERY_HOURS = max(1, int(os.environ.get("X_EVERY_HOURS", "1") or 1))
+except ValueError:
+    X_EVERY_HOURS = 1
 try:
     FB_EVERY_HOURS = max(1, int(os.environ.get("FB_EVERY_HOURS", "1") or 1))
 except ValueError:
@@ -95,78 +107,80 @@ CATEGORY_KEYWORDS = [
 ]
 WIKI_COUNTRIES = ["United States", "United Kingdom", "Canada", "Australia", "France", "Spain", "Germany", "Japan"]
 
-WRITER_SYSTEM = f"""You are an expert Automotive & Transport Historian, fact checker and viral Facebook history copywriter.
-You create ORIGINAL posts about the history of vehicles: cars, motorcycles, trucks, buses, trains, trams, ships, aircraft and bicycles, and the engineers, companies, races, records and laws behind them.
-- Follow the source text closely and do not rephrase factual claims in ways that could be challenged.
-- Prefer exact wording from the source for names, years, numbers, and dates.
-- Do not invent causal links, timing, or comparisons that are not stated in the source.
+SKILL_FILE = HERE / "skills" / "fb_seo_writing.md"   # optional: put your own Facebook SEO rules here and they replace the built-in ones
+
+WRITER_BASE = """You are an automotive and transport historian, strict fact checker and viral Facebook copywriter for the page "Wheels Through History": true stories of cars, motorcycles, trucks, buses, trams, trains, ships, aircraft and bicycles, and the engineers, companies, races, records and laws behind them.
+You create ORIGINAL posts, each about ONE vehicle story. Everything is plain American English. The headline lines are printed on the picture in ALL CAPS.
 
 HOOK RULE (most important after accuracy):
-- Pick the most surprising concrete fact the SOURCE TEXT states: a number, speed, weight, power figure, date, price, rule, failure or turning point, ideally with a contrast (a tiny engine vs a huge result, a strange rule vs normal life, a failure before a success).
-- Avoid vague trends ("cars became popular", "railways expanded"); prefer one specific, checkable fact and build the story around it.
-- The reader must think "wait, really?" within one second.
+- Find what makes a reader think "wait, really?": the strangest true detail, a surprising number (a speed, a weight, a power figure, a price, a year), a contrast (a tiny engine vs a huge result, a strange rule vs normal life, a failure before a success), exactly as the SOURCE TEXT states it. A striking number helps, but a number is NOT required: an odd origin, an extreme record or a surprising detail is just as good.
+- Avoid vague trends ("cars became popular", "railways expanded") and brochure talk. Prefer one specific, checkable thing and build the story around it.
 
 SOURCE-GROUNDING RULES (absolute):
-- You receive SOURCE TEXT from Wikipedia. Use ONLY facts that are stated in the SOURCE TEXT. Never add a number, date, amount, name, cause or "first/only/most" claim that the SOURCE TEXT does not state. Use no outside knowledge for facts.
-- Write every number, date and amount EXACTLY as it appears in the SOURCE TEXT (if the source says "two cents", write "two cents"). Do no arithmetic and no conversions.
-- Every proper name (law, institution, company, person, place) in your caption must appear in the SOURCE TEXT.
-- Pick the single most surprising fact with a number and a year that the SOURCE TEXT clearly states and that is about a vehicle, its design, engineering, record, race, safety, regulation, price or the people and companies behind it. Use the most interesting concrete fact the SOURCE TEXT states. Return {{"skip": true, "reason": "..."}} only if the article contains no such fact at all.
-- "evidence": 3 to 6 objects {{"claim": "...", "quote": "..."}} where quote is copied WORD FOR WORD from the SOURCE TEXT (6 to 30 words). Together they must cover EVERY number, year and name used in the headline and in the REVEAL paragraph.
-- The SCENE paragraph must start with "Picture" or "Imagine" and describe atmosphere only, with no numbers, dates or names that are not in the SOURCE TEXT.
+- You receive SOURCE TEXT from Wikipedia. Use ONLY facts that are stated in it. Never add a number, date, measurement, name, cause or "first / fastest / biggest / oldest / only / most" claim that the SOURCE TEXT does not state. Use no outside knowledge for facts.
+- Write every number, year and measurement EXACTLY as it appears in the SOURCE TEXT, with ordinary digits. Do no arithmetic and no unit conversion (if the source says miles, write miles).
+- Every proper name (model, company, person, place, race, law) in your text must appear in the SOURCE TEXT.
+- Return {"skip": true, "reason": "..."} only if the article is not about a vehicle story (a model, an invention, a company, a race, a record, a route, a law or a person behind a vehicle) or contains nothing interesting at all.
+- "evidence": 3 to 6 objects {"claim": "...", "quote": "..."} where quote is copied WORD FOR WORD from the SOURCE TEXT (6 to 30 words). Together they must cover EVERY number, year and name used in the headline and in the caption.
 - Never put citation markers like [1] or URLs in any text field.
-
-FACT TYPE RULE (very important):
-- Prefer concrete documented facts (a law and its date, a speed or power figure, a founding date and founder, an invention and its year, a record, a failure and what followed). It does not have to be a price.
-- Do not state vague claims such as "typical", "average" or "many drivers owned" unless the SOURCE TEXT states them.
-- STYLE: tell what happened using the source's own facts. Do not add evaluations or claims of importance that the source does not state (for example "saved the company", "brutal", "the biggest"). Rhetorical questions and reflections belong only in the CLOSER paragraph.
-- The caption must tell the history. Never say the image "shows" a real moment or present the illustration as evidence.
-
-FACT RULES:
-- NEVER invent facts. Only use facts you are highly confident are well documented.
-- Every number needs a year and a country. Never present inflation-adjusted figures as original prices.
-- For "first ever" claims, say "one of the earliest" if disputed. Company origin myths must be treated carefully.
-- Prefer WELL-KNOWN, widely documented facts (famous records, well-known models, famous founding stories, documented laws, famous inventions). Approximate numbers are fine if you write "about" or "around".
-
-IMAGE RULES:
-- The picture must show the STORY itself, like a real archive photograph of that very moment, in the style of a rich documentary scene. A car story shows that very car in its period setting. A train story shows the locomotive and the station or track. A ship story shows the ship at sea or in port. A race story shows the track and the machines. A factory story shows the assembly line and the workers. The vehicle is always the clear hero of the picture, fully in frame, with period-correct design. Use whatever the story needs: interiors, buildings, streets, workplaces, vehicles, machines, objects, landscapes, crowds, even underground or the sky. There is no limit on imagination.
-- Give TWO different visual ideas for the same story: image_prompt_a is the main picture, image_prompt_b is another way to show the same story. Each is ONE vivid visual description of 40-70 words: the key subject FIRST, then the people and what they do, the place, the exact era and country, period-correct clothes and objects, the light and the mood.
-- The picture has no writing at all: no signs, number plates, badges or logos. No real brand names or logos.
-
-HEADLINE SOURCE RULE (accuracy):
-- Build the headline and the main claim ONLY from a sentence of the SOURCE TEXT whose meaning is completely clear. If a sentence is ambiguous (for example a percentage range where it is unclear what the percentage measures), do not use it for the headline or the main claim: pick another fact.
-- For any percentage, ratio or range, say exactly what it measures and who it applies to, and use cautious wording in the caption ("reportedly", "according to accounts", "about").
+- Do not add evaluations the source does not state ("saved the company", "brutal", "the biggest"). Never say the picture shows a real moment or present the illustration as evidence.
+- For any percentage, ratio or range, say exactly what it measures and use cautious wording in the caption ("reportedly", "according to accounts", "about").
 - Never turn a speed, a figure or a rule into a claim of danger, fault or blame unless the SOURCE TEXT says exactly that.
 
-HEADLINE RULES:
-- headline_lines: 2 or 3 ALL-CAPS lines forming ONE short curiosity hook, 8-12 words in total, each line MAX 28 characters. It teases a surprise, it does NOT retell the whole fact or the news. Use only a year or a number, never a full date (never "MARCH 14 2025"). Never name living people.
-- Examples: ["A [4-CYLINDER] ENGINE", "ONCE BEAT A", "WHOLE LOCOMOTIVE"] or ["IN [1908], A CAR", "COST JUST [$850]"].
-- Red highlight: wrap ONE key word or number (two short groups at most) in [square brackets]. The brackets must hug the words: put a currency symbol INSIDE ("[$2,000,000]", never "$[2,000,000]") and punctuation OUTSIDE ("[1930],", never "[1930,]"). Never put a whole line in brackets. Do not use parentheses.
-- subhook: 3-6 words, ALL CAPS, a short teaser shown under the headline. It adds NO new fact (for example "THE TAX ROSE WITH HORSEPOWER").
-- The headline must be truthful and supported by the source.
-
-CAPTION RULES (write like a real person, not like an AI):
-- 150-260 words, plain American English, in the voice of ONE sharp, slightly opinionated history nerd telling a friend something that surprised him. The user message gives you a VOICE and a SHAPE: follow them and no other template.
-- Start with the surprising thing itself (a number, an odd detail, what people had to do). The first sentence is under 120 characters and holds the surprising fact. Never start with "Picture", "Imagine", "In a world", "Have you ever", or a date-and-place scene opener.
-- Mix very short sentences (2-6 words) with long winding ones (25+ words). Break the rhythm on purpose. Fragments are fine. Use contractions. One small aside is fine.
-- Use the odd, specific words of the SOURCE TEXT (names of things, trades, objects, places) instead of general words. Say what people actually drove, built, rode, repaired, shouted.
-- Never write vague summary lines such as "marked a turning point", "played a crucial role", "paved the way", "ignited", "sparked a movement", "highlighting", "underscores", "a testament to". Never use the words: delve, tapestry, testament, realm, pivotal, crucial, moreover, furthermore, additionally, notably, ultimately; never write "it's worth noting", "in conclusion", "not just ... but", "Here's the thing", "Then versus now".
-- No lists of three adjectives or three parallel clauses. No moral, no summary, no lesson at the end.
-- 3 to 6 paragraphs of UNEVEN length, separated by a blank line (write \\n\\n inside the JSON string). One paragraph may be one short sentence.
-- Ending: ONE of these, never two: a blunt last line, a small joke, or one short question. Never two questions in the text.
-- Facts: keep every number, year and name exactly as in the SOURCE TEXT. Own words: never copy six words in a row from the SOURCE TEXT. Mention nothing after {RECENT_CUTOFF}.
-- Plain text only. No em dashes, no emojis, no markdown, no hashtags inside the text.
-
 TOPIC AGE RULE:
-- Only write about events that happened at least 30 years ago (nothing after {RECENT_CUTOFF}). Never write about living politicians, current governments, current policies or political debates, even if the SOURCE TEXT covers them. If the SOURCE TEXT is mostly about recent events, return {{"skip": true, "reason": "too recent"}}.
+- Only write about events that happened at least 30 years ago (nothing after <<CUTOFF>>). Never write about living politicians, current governments or political debates. If the SOURCE TEXT is mostly about recent events, return {"skip": true, "reason": "too recent"}.
 
 TOPIC RULE:
 - The story must be about vehicle history: a model, an invention, a company, a race, a record, a route, a law or a person behind a vehicle.
 - NEVER choose topics about executions, crime and punishment, violence, war atrocities, fatal accidents, sinkings, crashes, weapons, disasters, tragedies or anything graphic or sensitive.
 
-JSON FORMAT: output valid JSON only. Inside string values write paragraph breaks as the escaped characters \n (never real line breaks) and write every double quote inside text as \" . No comments, no trailing commas.
+<<SEO_RULES>>
+
+IMAGE RULES:
+- The picture must show the STORY itself, like a real archive photograph of that very moment. A car story shows that very car in its period setting. A train story shows the locomotive and the station or track. A ship story shows the ship at sea or in port. A race story shows the track and the machines. A factory story shows the assembly line and the workers. The vehicle is always the clear hero of the picture, fully in frame, with period-correct design. Use whatever the story needs: interiors, streets, workplaces, machines, landscapes, crowds.
+- Give TWO different visual ideas for the same story: image_prompt_a is the main picture, image_prompt_b is another way to show the same story. Each is ONE vivid description of 40-70 words: the key subject FIRST, then the people and what they do, the place, the exact era and country, period-correct clothes and objects, the light and the mood.
+- The picture has no writing at all: no signs, number plates, badges or logos. No real brand names or logos.
+
+HEADLINE RULES (printed on the picture):
+- headline_lines: 2 or 3 ALL-CAPS lines forming ONE short curiosity hook, 8-12 words in total, each line MAX 28 characters. It teases a surprise, it does NOT retell the whole fact. Use only a year or a number, never a full date. Never name living people.
+- Examples: ["A [4-CYLINDER] ENGINE", "ONCE BEAT A", "WHOLE LOCOMOTIVE"] or ["IN [1908], A CAR", "COST JUST [$850]"].
+- Highlight: wrap ONE key word or number (two short groups at most) in [square brackets]. The brackets must hug the words: put a currency symbol INSIDE ("[$850]", never "$[850]") and punctuation OUTSIDE ("[1930],", never "[1930,]"). Never put a whole line in brackets. Do not use parentheses.
+- subhook: 3-6 words, ALL CAPS, a short teaser shown under the headline. It adds NO new fact.
+- The headline must be truthful and supported by the source.
+
+CAPTION RULES (write like a real person, not like an AI):
+- 150-260 words, plain American English, in the voice of ONE sharp, slightly opinionated history nerd telling a friend something that surprised him. The user message gives you a VOICE and a SHAPE: follow them and no other template.
+- Start with the surprising thing itself (an odd detail, a number, what a driver, rider or passenger actually faced). The first sentence is under 120 characters. Never start with "Picture", "Imagine", "In a world", "Have you ever", "Welcome to", or a date-and-place scene opener.
+- Mix very short sentences (2-6 words) with long winding ones (25+ words). Break the rhythm on purpose. Fragments are fine. Use contractions. One small aside is fine.
+- Use the odd, specific words of the SOURCE TEXT (names of parts, trades, machines, places) instead of general words. Say what people actually drove, built, rode, repaired, shouted.
+- Never write vague summary lines such as "marked a turning point", "played a crucial role", "paved the way", "a testament to", "stands as", "boasts", "ignited", "sparked a movement", "highlighting", "underscores". Never use the words: delve, tapestry, testament, realm, pivotal, crucial, moreover, furthermore, additionally, notably, ultimately; never write "it's worth noting", "in conclusion", "not just ... but", "Here's the thing", "Then versus now".
+- No lists of three adjectives or three parallel clauses. No moral, no summary, no lesson, no sales pitch.
+- 3 to 6 paragraphs of UNEVEN length, separated by a blank line (write \\n\\n inside the JSON string). One paragraph may be one short sentence.
+- Ending: ONE of these, never two: a blunt last line, a small joke, or one short question. Never two questions in the text. Never ask people to like, share, comment or tag.
+- Never fake first-hand experience: no "I drove one", no invented quotes. You may have opinions about the facts.
+- Facts: keep every number, year and name exactly as in the SOURCE TEXT. Own words: never copy six words in a row from the SOURCE TEXT. Mention nothing after <<CUTOFF>>.
+- Plain text only. No em dashes, no emojis, no markdown, no hashtags inside the text.
+
+JSON FORMAT: output valid JSON only. Inside string values write paragraph breaks as the escaped characters \\n (never real line breaks) and write every double quote inside text as \\" . No comments, no trailing commas.
 
 Return ONLY one JSON object, no markdown fences, with keys:
 skip, topic, fact, year, country, headline_lines (array), subhook, image_prompt_a, image_prompt_b, caption, hashtags (array of exactly 2 relevant topical hashtags like "#CarHistory"), evidence (array described above)."""
+
+DEFAULT_SEO_RULES = """FACEBOOK SEARCH RULES:
+- The name of the vehicle or story and the country or year both appear within the first two sentences of the caption, in natural words.
+- Use the plain words people type into a search box (the model, the company, the kind of vehicle) once or twice, never stuffed.
+- Hashtags are added after the text and never appear inside it.
+- No clickbait lies, no "you won't believe", no engagement bait."""
+
+
+def build_writer_system():
+    """The writer prompt = grounding and voice rules + the Facebook SEO rules (skills/fb_seo_writing.md if you add it, else the built-in ones)."""
+    try:
+        rules = SKILL_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        rules = DEFAULT_SEO_RULES
+    return WRITER_BASE.replace("<<SEO_RULES>>", rules).replace("<<CUTOFF>>", str(RECENT_CUTOFF))
+
 
 CHECKER_SYSTEM = """You are a strict fact checker. You receive SOURCE TEXT (from Wikipedia) and a DRAFT social post.
 Decide whether every factual claim in the draft's headline and caption is supported by the SOURCE TEXT.
@@ -872,7 +886,7 @@ SHAPES = [
 
 
 def write_post(title, source, recent):
-    system = WRITER_SYSTEM
+    system = build_writer_system()
     user = (
         f"SOURCE ARTICLE TITLE: {title}\n\nSOURCE TEXT:\n{source}\n\n"
         f"Do NOT repeat or closely resemble any of these recent topics: {json.dumps(recent)}\n"
@@ -1538,13 +1552,45 @@ def fallback_background():
     return _vintage(base, "mono")
 
 
-def load_font(size):
-    path = FONT_PATH if FONT_PATH.exists() else FALLBACK_FONT
+FONT_DIR = HERE / "fonts"
+
+# One look per style: font, text colour, keyword colour, shadow kind (hard 3D drop / glow / outline), bottom tint,
+# alignment and subhook design. Every post gets a different one (never one of the last 4 used).
+# A font that is not in the fonts folder falls back to Anton, so the colours work even with one font.
+STYLES = [
+    {"name": "classic", "font": "Anton-Regular.ttf",        "text": (244, 244, 240), "accent": (214, 70, 62),   "shadow": ("hard", (0, 0, 0)),       "tint": (0, 0, 0),    "align": "center", "sub": "line", "lh": 1.08, "k": 1.00},
+    {"name": "gold",    "font": "AbrilFatface-Regular.ttf", "text": (250, 240, 214), "accent": (232, 190, 105), "shadow": ("hard", (62, 30, 6)),     "tint": (22, 10, 2),  "align": "center", "sub": "line", "lh": 1.12, "k": 0.92},
+    {"name": "ice",     "font": "BebasNeue-Regular.ttf",    "text": (244, 246, 248), "accent": (134, 196, 226), "shadow": ("glow", (28, 62, 120)),   "tint": (2, 8, 26),   "align": "left",   "sub": "chip", "lh": 1.02, "k": 1.14},
+    {"name": "sun",     "font": "ArchivoBlack-Regular.ttf", "text": (244, 224, 140), "accent": (244, 244, 240), "shadow": ("hard", (0, 0, 0)),       "tint": (0, 0, 0),    "align": "center", "sub": "line", "lh": 1.10, "k": 0.78},
+    {"name": "pink",    "font": "Poppins-ExtraBold.ttf",    "text": (244, 244, 240), "accent": (232, 118, 156), "shadow": ("hard", (74, 16, 92)),    "tint": (14, 4, 22),  "align": "left",   "sub": "chip", "lh": 1.12, "k": 0.82},
+    {"name": "lime",    "font": "Staatliches-Regular.ttf",  "text": (244, 244, 240), "accent": (190, 224, 120), "shadow": ("outline", (6, 40, 20)),  "tint": (2, 18, 8),   "align": "center", "sub": "line", "lh": 1.04, "k": 1.14},
+    {"name": "ember",   "font": "RussoOne-Regular.ttf",     "text": (244, 244, 240), "accent": (236, 156, 84),  "shadow": ("hard", (96, 14, 10)),    "tint": (20, 4, 2),   "align": "left",   "sub": "line", "lh": 1.10, "k": 0.86},
+    {"name": "lagoon",  "font": "Righteous-Regular.ttf",    "text": (232, 242, 248), "accent": (122, 208, 188), "shadow": ("glow", (10, 90, 90)),    "tint": (2, 16, 20),  "align": "center", "sub": "chip", "lh": 1.10, "k": 0.92},
+    {"name": "coral",   "font": "PassionOne-Bold.ttf",      "text": (250, 244, 236), "accent": (238, 128, 108), "shadow": ("hard", (90, 20, 30)),    "tint": (18, 6, 8),   "align": "center", "sub": "line", "lh": 1.04, "k": 1.14},
+    {"name": "slab",    "font": "AlfaSlabOne-Regular.ttf",  "text": (250, 242, 222), "accent": (232, 182, 88),  "shadow": ("outline", (40, 22, 8)),  "tint": (14, 8, 2),   "align": "left",   "sub": "line", "lh": 1.10, "k": 0.82},
+]
+RECENT_STYLES = []   # style names of the latest posts (filled from history.json)
+_STYLE_USED = [""]
+
+
+def pick_style():
+    fresh = [s for s in STYLES if s["name"] not in RECENT_STYLES[-4:]] or STYLES
+    return random.choice(fresh)
+
+
+def load_font(size, name=None):
+    path = FONT_DIR / (name or "Anton-Regular.ttf")
+    if not path.exists():
+        path = FONT_PATH if FONT_PATH.exists() else FALLBACK_FONT
     return ImageFont.truetype(str(path), size)
 
 
-def parse_segments(line):
-    return [(t, RED if red else WHITE) for t, red in _runs(line) if t]
+def _ascii(s):
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii")
+
+
+def parse_segments(line, st):
+    return [(t, st["accent"] if red else st["text"]) for t, red in _runs(line) if t]
 
 
 def _smooth(x):
@@ -1552,18 +1598,50 @@ def _smooth(x):
     return x * x * (3 - 2 * x)
 
 
-def _spaced(draw, cx, y, text, font, fill, spacing=3, shadow=True):
-    total = sum(font.getlength(c) + spacing for c in text) - spacing
-    x = cx - total / 2
+def _spaced(draw, x0, y, text, font, fill, spacing=3, shadow=True):
+    x = x0
     for c in text:
         if shadow:
             draw.text((x + 2, y + 3), c, font=font, fill=(0, 0, 0))
         draw.text((x, y), c, font=font, fill=fill)
         x += font.getlength(c) + spacing
+    return x
 
 
-def overlay_text(photo, headline_lines, subhook):
-    """Full-bleed photo, dark gradient at the bottom, big headline with red keywords, small subline, watermarks."""
+def _spaced_width(text, font, spacing=3):
+    return sum(font.getlength(c) + spacing for c in text) - spacing
+
+
+def _headline_layers(img, items, font, st):
+    """glow / 3D drop shadow / outline behind the text, then the text itself."""
+    kind, scol = st["shadow"]
+    size = font.size
+    if kind == "glow":
+        mask = Image.new("L", (W, H), 0)
+        md = ImageDraw.Draw(mask)
+        for x, y, t, _ in items:
+            md.text((x, y), t, font=font, fill=255)
+        mask = mask.filter(ImageFilter.GaussianBlur(max(16, size // 5))).point(lambda v: min(255, int(v * 0.8)))
+        img.paste(Image.new("RGB", (W, H), scol), (0, 0), mask)
+    d = ImageDraw.Draw(img)
+    for x, y, t, _ in items:
+        d.text((x + 2, y + 4), t, font=font, fill=(0, 0, 0))
+    if kind == "hard":
+        for i in range(1, max(4, size // 18) + 1):
+            for x, y, t, _ in items:
+                d.text((x + i * 0.7, y + i), t, font=font, fill=scol)
+    stroke = max(3, size // 26) if kind == "outline" else 0
+    for x, y, t, c in items:
+        if stroke:
+            d.text((x, y), t, font=font, fill=c, stroke_width=stroke, stroke_fill=scol)
+        else:
+            d.text((x, y), t, font=font, fill=c)
+
+
+def overlay_text(photo, headline_lines, subhook, style=None):
+    """Full-bleed photo, tinted gradient at the bottom, big hook in this post's own colours, teaser line, watermarks."""
+    st = style or pick_style()
+    _STYLE_USED[0] = st["name"]
     img = photo.convert("RGB")
     if img.size != (W, H):
         img = ImageOps.fit(img, (W, H), method=Image.LANCZOS)
@@ -1572,54 +1650,82 @@ def overlay_text(photo, headline_lines, subhook):
     px = grad.load()
     for y in range(H):
         f = y / H
-        if f < 0.50:
+        if f < 0.48:
             a = 0.0
         elif f < 0.72:
-            a = 0.90 * _smooth((f - 0.50) / 0.22)
+            a = 0.90 * _smooth((f - 0.48) / 0.24)
         else:
             a = 0.90 + 0.08 * ((f - 0.72) / 0.28)
         px[0, y] = int(255 * a)
-    img.paste(Image.new("RGB", (W, H), (0, 0, 0)), (0, 0), grad.resize((W, H)))
+    img.paste(Image.new("RGB", (W, H), st["tint"]), (0, 0), grad.resize((W, H)))
 
-    lines = [parse_segments(l.upper()) for l in headline_lines if l.strip()]
-    max_w, max_h = W - 120, int(H * 0.29)
-    size = 108
+    left = st["align"] == "left"
+    margin = 72
+    max_w, max_h = W - 2 * margin, int(H * 0.31)
+    sub = _ascii(subhook).upper().strip()
+    lines = [parse_segments(_ascii(l).upper(), st) for l in headline_lines if l.strip()]
+    size = min(int(112 * st["k"]), 140)
     while size > 40:
-        font = load_font(size)
-        lh = int(size * 1.08)
+        font = load_font(size, st["font"])
+        lh = int(size * st["lh"])
         widths = [sum(font.getlength(t) for t, _ in segs) for segs in lines]
-        total = lh * len(lines) + (int(size * 0.62) if subhook.strip() else 0)
+        extra = (int(size * 0.62) if sub and st["sub"] == "line" else 0) + (74 if sub and st["sub"] == "chip" else 0) + (26 if left else 0)
+        total = lh * len(lines) + extra
         if max(widths) <= max_w and total <= max_h:
             break
         size -= 4
 
     draw = ImageDraw.Draw(img)
     y = H - 104 - total
+    if left:  # short accent bar above the headline
+        draw.rectangle([margin, y, margin + 120, y + 10], fill=st["accent"])
+        y += 26
+    if sub and st["sub"] == "chip":
+        cf = load_font(34, "BebasNeue-Regular.ttf")
+        cw = _spaced_width(sub, cf, 4) + 40
+        cx = margin if left else (W - cw) / 2
+        lum = 0.3 * st["accent"][0] + 0.59 * st["accent"][1] + 0.11 * st["accent"][2]
+        draw.rounded_rectangle([cx, y, cx + cw, y + 52], radius=10, fill=st["accent"])
+        _spaced(draw, cx + 20, y + 6, sub, cf, (0, 0, 0) if lum > 135 else (255, 255, 255), spacing=4, shadow=False)
+        y += 74
+
+    items = []
     for segs, width in zip(lines, widths):
-        x = (W - width) / 2
+        x = margin if left else (W - width) / 2
         for text, color in segs:
-            draw.text((x + 3, y + 4), text, font=font, fill=(0, 0, 0))
-            draw.text((x, y), text, font=font, fill=color)
+            items.append((x, y, text, color))
             x += font.getlength(text)
         y += lh
-    sub = subhook.upper().strip()
-    if sub:
-        _spaced(draw, W / 2, y + int(size * 0.10), sub, load_font(max(26, int(size * 0.34))), WHITE, spacing=3)
+    _headline_layers(img, items, font, st)
+
+    draw = ImageDraw.Draw(img)
+    if sub and st["sub"] == "line":
+        sf = load_font(max(30, int(size * 0.36)), "BebasNeue-Regular.ttf")
+        sw = _spaced_width(sub, sf, 5)
+        bar = 56
+        total_w = sw + 2 * (bar + 18) if not left else bar + 18 + sw
+        x0 = margin if left else (W - total_w) / 2
+        yy = y + int(size * 0.17)
+        mid = yy + sf.size * 0.55
+        draw.rectangle([x0, mid - 2, x0 + bar, mid + 2], fill=st["accent"])
+        xt = _spaced(draw, x0 + bar + 18, yy, sub, sf, st["text"], spacing=5)
+        if not left:
+            draw.rectangle([xt + 13, mid - 2, xt + 13 + bar, mid + 2], fill=st["accent"])
 
     # watermarks: page name (bottom-left) and the AI label (bottom-right)
     if PAGE_NAME:
-        wf = load_font(24)
-        draw.ellipse([30, H - 46, 46, H - 30], fill=GOLD)
+        wf = load_font(26, "BebasNeue-Regular.ttf")
+        draw.ellipse([30, H - 46, 46, H - 30], fill=st["accent"])
         x = 58
         for c in PAGE_NAME.upper():
-            draw.text((x + 1, H - 46), c, font=wf, fill=(0, 0, 0))
-            draw.text((x, H - 47), c, font=wf, fill=(238, 238, 238))
-            x += wf.getlength(c) + 2
+            draw.text((x + 1, H - 48), c, font=wf, fill=(0, 0, 0))
+            draw.text((x, H - 49), c, font=wf, fill=(238, 238, 238))
+            x += wf.getlength(c) + 3
     if WATERMARK:
-        af = load_font(20)
+        af = load_font(24, "BebasNeue-Regular.ttf")
         label = WATERMARK.upper()
-        aw = sum(af.getlength(c) + 1 for c in label)
-        draw.text((W - aw - 30, H - 44), label, font=af, fill=(205, 205, 205))
+        aw = _spaced_width(label, af, 2)
+        _spaced(draw, W - aw - 30, H - 48, label, af, (205, 205, 205), spacing=2, shadow=False)
     return img
 
 
@@ -1678,6 +1784,90 @@ def facebook_due():
     return datetime.now(timezone.utc).hour % FB_EVERY_HOURS == 0
 
 
+# ----------------------------------------------------------------- x (twitter)
+def _pct(v):
+    return quote(str(v), safe="~")
+
+
+def _oauth1_header(method, url, extra=None, nonce=None, ts=None):
+    """OAuth 1.0a (HMAC-SHA1) header. JSON and multipart bodies are not part of the signature, only the oauth fields and any query parameters."""
+    oauth = {
+        "oauth_consumer_key": X_API_KEY,
+        "oauth_nonce": nonce or secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": ts or str(int(time.time())),
+        "oauth_token": X_ACCESS_TOKEN,
+        "oauth_version": "1.0",
+    }
+    params = dict(oauth)
+    params.update(extra or {})
+    pairs = sorted((_pct(k), _pct(v)) for k, v in params.items())
+    base = "&".join([method.upper(), _pct(url), _pct("&".join(f"{k}={v}" for k, v in pairs))])
+    key = f"{_pct(X_API_SECRET)}&{_pct(X_ACCESS_TOKEN_SECRET)}"
+    oauth["oauth_signature"] = base64.b64encode(hmac.new(key.encode(), base.encode(), hashlib.sha1).digest()).decode()
+    return "OAuth " + ", ".join(f'{_pct(k)}="{_pct(v)}"' for k, v in sorted(oauth.items()))
+
+
+def tweet_text(post, limit=280):
+    """Short version of the caption for X: first sentences + the last line (usually the question) + up to 2 hashtags. No links."""
+    cap = post["caption"].strip()
+    tags = re.findall(r"#\w+", cap.split("\n\n")[-1])[:2]
+    body = cap.rsplit("\n\n", 1)[0] if "#" in cap.split("\n\n")[-1] else cap
+    body = re.sub(r"https?://\S+", "", body).strip()
+    tail = (" ".join(tags)).strip()
+    room = limit - (len(tail) + 2 if tail else 0)
+    sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", body.replace("\n", " ")) if x.strip()]
+    out = ""
+    for sent in sents:
+        cand = (out + " " + sent).strip()
+        if len(cand) <= room:
+            out = cand
+        else:
+            break
+    if not out and sents:
+        out = sents[0][: room - 1].rstrip() + "\u2026"
+    last = sents[-1] if sents else ""
+    if last and last not in out and len((out + " " + last).strip()) <= room:
+        out = (out + " " + last).strip()
+    return (out + ("\n\n" + tail if tail else "")).strip()
+
+
+def send_to_x(img, post):
+    """Upload the picture, then create the post with it attached (X API v2, OAuth 1.0a user context)."""
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=92, subsampling=0)
+    up_url = "https://api.x.com/2/media/upload"
+    r = requests.post(
+        up_url,
+        headers={"Authorization": _oauth1_header("POST", up_url)},
+        data={"media_category": "tweet_image", "media_type": "image/jpeg"},
+        files={"media": ("post.jpg", buf.getvalue(), "image/jpeg")},
+        timeout=120,
+    )
+    if not r.ok:
+        raise RuntimeError(f"x media upload failed: HTTP {r.status_code} {r.text[:300]}")
+    j = r.json()
+    media_id = str((j.get("data") or {}).get("id") or j.get("media_id_string") or j.get("media_id") or "")
+    if not media_id:
+        raise RuntimeError(f"x media upload gave no media id: {r.text[:200]}")
+    tw_url = "https://api.x.com/2/tweets"
+    r = requests.post(
+        tw_url,
+        headers={"Authorization": _oauth1_header("POST", tw_url), "Content-Type": "application/json"},
+        json={"text": tweet_text(post), "media": {"media_ids": [media_id]}},
+        timeout=60,
+    )
+    if not r.ok:
+        raise RuntimeError(f"x post failed: HTTP {r.status_code} {r.text[:300]}")
+    log("x post id:", (r.json().get("data") or {}).get("id"))
+
+
+def x_due():
+    if not (X_API_KEY and X_API_SECRET and X_ACCESS_TOKEN and X_ACCESS_TOKEN_SECRET):
+        return False
+    return datetime.now(timezone.utc).hour % X_EVERY_HOURS == 0
+
+
 # ----------------------------------------------------------------- main
 def main():
     missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", CF_ACCOUNT), ("CLOUDFLARE_API_TOKEN", CF_TOKEN), ("TELEGRAM_BOT_TOKEN", TG_TOKEN), ("TELEGRAM_CHAT_ID", TG_CHAT),
@@ -1701,6 +1891,7 @@ def run():
     history = load_history()
     recent = [h["topic"] for h in history[-40:]]
     used = {h.get("source") for h in history if h.get("source")}
+    RECENT_STYLES[:] = [h.get("style") for h in history[-6:] if h.get("style")]
     try:
         post = build_post(recent, used)  # always returns something unless Wikipedia itself is unreachable
     except RuntimeError as e:
@@ -1729,6 +1920,14 @@ def run():
             log("FACEBOOK ERROR:", e)
     else:
         log("facebook skipped this hour (not configured or not due)")
+    if x_due():
+        try:
+            send_to_x(img, post)
+            sent = True
+        except Exception as e:  # noqa: BLE001
+            log("X ERROR:", e)
+    else:
+        log("x skipped this hour (not configured or not due)")
 
     if sent:
         history.append(
@@ -1737,6 +1936,7 @@ def run():
                 "topic": post["topic"],
                 "source": post.get("source_title"),
                 "year": post.get("year"),
+                "style": _STYLE_USED[0],
                 "country": post.get("country"),
             }
         )
