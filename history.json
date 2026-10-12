@@ -161,5 +161,13 @@
   "year": 1927,
   "style": "gold",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-12T18:12+00:00",
+  "topic": "Raleigh Bicycle Company",
+  "source": "Raleigh Bicycle Company",
+  "year": 1913,
+  "style": "lagoon",
+  "country": "England"
  }
 ]
