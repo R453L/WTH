@@ -137,5 +137,13 @@
   "year": 1865,
   "style": "coral",
   "country": "United Kingdom"
+ },
+ {
+  "ts": "2026-10-12T09:12+00:00",
+  "topic": "24 Hours of Le Mans",
+  "source": "24 Hours of Le Mans",
+  "year": 1988,
+  "style": "slab",
+  "country": "France"
  }
 ]
