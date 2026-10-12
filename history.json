@@ -153,5 +153,13 @@
   "year": 1934,
   "style": "pink",
   "country": "United Kingdom"
+ },
+ {
+  "ts": "2026-10-12T15:13+00:00",
+  "topic": "Spirit of St. Louis",
+  "source": "Spirit of St. Louis",
+  "year": 1927,
+  "style": "gold",
+  "country": "United States"
  }
 ]
