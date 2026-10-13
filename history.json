@@ -169,5 +169,13 @@
   "year": 1913,
   "style": "lagoon",
   "country": "England"
+ },
+ {
+  "ts": "2026-10-13T03:12+00:00",
+  "topic": "1907 Peking to Paris motor race",
+  "source": "Peking to Paris",
+  "year": 1907,
+  "style": "lime",
+  "country": "China and France"
  }
 ]
