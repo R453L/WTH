@@ -209,5 +209,13 @@
   "year": 1955,
   "style": "gold",
   "country": "Italy"
+ },
+ {
+  "ts": "2026-10-13T18:12+00:00",
+  "topic": "Chrysler Airflow",
+  "source": "Chrysler Airflow",
+  "year": 1934,
+  "style": "slab",
+  "country": "USA"
  }
 ]
