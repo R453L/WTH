@@ -193,5 +193,13 @@
   "year": 1947,
   "style": "ice",
   "country": "United Kingdom"
+ },
+ {
+  "ts": "2026-10-13T12:12+00:00",
+  "topic": "SS Normandie",
+  "source": "SS Normandie",
+  "year": 1935,
+  "style": "coral",
+  "country": "France"
  }
 ]
