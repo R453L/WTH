@@ -249,5 +249,13 @@
   "year": 1962,
   "style": "coral",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-14T15:13+00:00",
+  "topic": "Citroën Traction Avant",
+  "source": "Citroën Traction Avant",
+  "year": 1934,
+  "style": "sun",
+  "country": "France"
  }
 ]
