@@ -217,5 +217,13 @@
   "year": 1934,
   "style": "slab",
   "country": "USA"
+ },
+ {
+  "ts": "2026-10-14T03:12+00:00",
+  "topic": "Vincent Black Shadow",
+  "source": "Vincent Black Shadow",
+  "year": 1948,
+  "style": "ember",
+  "country": "UK"
  }
 ]
