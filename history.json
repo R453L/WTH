@@ -257,5 +257,13 @@
   "year": 1934,
   "style": "sun",
   "country": "France"
+ },
+ {
+  "ts": "2026-10-14T18:12+00:00",
+  "topic": "Bugatti Royale",
+  "source": "Bugatti Royale",
+  "year": 1927,
+  "style": "lagoon",
+  "country": "France"
  }
 ]
