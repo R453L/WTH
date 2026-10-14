@@ -241,5 +241,13 @@
   "year": 1888,
   "style": "lime",
   "country": "Ireland"
+ },
+ {
+  "ts": "2026-10-14T12:14+00:00",
+  "topic": "Ferrari 250 GTO",
+  "source": "Ferrari 250 GTO",
+  "year": 1962,
+  "style": "coral",
+  "country": "United States"
  }
 ]
