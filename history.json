@@ -281,5 +281,13 @@
   "year": 1949,
   "style": "classic",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-15T09:13+00:00",
+  "topic": "Sikorsky S-42",
+  "source": "Sikorsky S-42",
+  "year": 1934,
+  "style": "ember",
+  "country": "United States"
  }
 ]
