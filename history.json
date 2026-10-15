@@ -265,5 +265,13 @@
   "year": 1927,
   "style": "lagoon",
   "country": "France"
+ },
+ {
+  "ts": "2026-10-15T03:13+00:00",
+  "topic": "Duryea GEM automobile",
+  "source": "Duryea Motor Wagon Company",
+  "year": 1916,
+  "style": "slab",
+  "country": "United States"
  }
 ]
