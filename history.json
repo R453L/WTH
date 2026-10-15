@@ -273,5 +273,13 @@
   "year": 1916,
   "style": "slab",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-15T06:12+00:00",
+  "topic": "Seat belt history",
+  "source": "Seat belt",
+  "year": 1949,
+  "style": "classic",
+  "country": "United States"
  }
 ]
