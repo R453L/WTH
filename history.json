@@ -289,5 +289,13 @@
   "year": 1934,
   "style": "ember",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-15T12:12+00:00",
+  "topic": "Dymaxion car",
+  "source": "Dymaxion car",
+  "year": 1933,
+  "style": "sun",
+  "country": "United States"
  }
 ]
