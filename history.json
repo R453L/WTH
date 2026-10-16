@@ -297,5 +297,13 @@
   "year": 1933,
   "style": "sun",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-16T04:14+00:00",
+  "topic": "Benz Patent-Motorwagen",
+  "source": "Benz Patent-Motorwagen",
+  "year": 1887,
+  "style": "ice",
+  "country": "Germany"
  }
 ]
