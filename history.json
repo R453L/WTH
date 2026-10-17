@@ -321,5 +321,13 @@
   "year": 1803,
   "style": "gold",
   "country": "Scotland"
+ },
+ {
+  "ts": "2026-10-17T08:14+00:00",
+  "topic": "Pan-American Highway",
+  "source": "Pan-American Highway",
+  "year": 1937,
+  "style": "classic",
+  "country": "Argentina"
  }
 ]
