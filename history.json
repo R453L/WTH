@@ -353,5 +353,13 @@
   "year": 1903,
   "style": "slab",
   "country": "France"
+ },
+ {
+  "ts": "2026-10-19T08:14+00:00",
+  "topic": "Duesenberg Automobile & Motors Company",
+  "source": "Duesenberg",
+  "year": 1929,
+  "style": "coral",
+  "country": "USA"
  }
 ]
