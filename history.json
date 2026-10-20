@@ -369,5 +369,13 @@
   "year": 1955,
   "style": "sun",
   "country": "Germany"
+ },
+ {
+  "ts": "2026-10-20T08:15+00:00",
+  "topic": "Citroën 2CV",
+  "source": "Citroën 2CV",
+  "year": 1948,
+  "style": "gold",
+  "country": "France"
  }
 ]
