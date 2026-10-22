@@ -393,5 +393,13 @@
   "year": 1931,
   "style": "ember",
   "country": "Britain"
+ },
+ {
+  "ts": "2026-10-22T04:36+00:00",
+  "topic": "Carrera Panamericana",
+  "source": "Carrera Panamericana",
+  "year": 1950,
+  "style": "slab",
+  "country": "Mexico"
  }
 ]
