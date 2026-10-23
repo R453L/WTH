@@ -401,5 +401,13 @@
   "year": 1950,
   "style": "slab",
   "country": "Mexico"
+ },
+ {
+  "ts": "2026-10-23T04:36+00:00",
+  "topic": "Tucker 48",
+  "source": "Tucker 48",
+  "year": 1948,
+  "style": "lime",
+  "country": "United States"
  }
 ]
