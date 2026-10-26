@@ -425,5 +425,13 @@
   "year": 1948,
   "style": "coral",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-26T04:36+00:00",
+  "topic": "Fiat 500",
+  "source": "Fiat 500",
+  "year": 1957,
+  "style": "ice",
+  "country": "Italy"
  }
 ]
