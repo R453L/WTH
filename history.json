@@ -433,5 +433,13 @@
   "year": 1957,
   "style": "ice",
   "country": "Italy"
+ },
+ {
+  "ts": "2026-10-27T04:36+00:00",
+  "topic": "Bugatti Type 35",
+  "source": "Bugatti Type 35",
+  "year": "1924",
+  "style": "slab",
+  "country": "France"
  }
 ]
