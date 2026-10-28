@@ -441,5 +441,13 @@
   "year": "1924",
   "style": "slab",
   "country": "France"
+ },
+ {
+  "ts": "2026-10-28T04:39+00:00",
+  "topic": "Piper J-3 Cub",
+  "source": "Piper J-3 Cub",
+  "year": 1938,
+  "style": "gold",
+  "country": "United States"
  }
 ]
