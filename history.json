@@ -449,5 +449,13 @@
   "year": 1938,
   "style": "gold",
   "country": "United States"
+ },
+ {
+  "ts": "2026-10-29T04:36+00:00",
+  "topic": "DeLorean DMC-12",
+  "source": "DeLorean DMC-12",
+  "year": 1981,
+  "style": "sun",
+  "country": "United States"
  }
 ]
