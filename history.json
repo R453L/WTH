@@ -505,5 +505,13 @@
   "year": 1863,
   "style": "lagoon",
   "country": "England"
+ },
+ {
+  "ts": "2026-11-05T04:36+00:00",
+  "topic": "Pierce-Arrow",
+  "source": "Pierce-Arrow",
+  "year": "1933",
+  "style": "sun",
+  "country": "USA"
  }
 ]
