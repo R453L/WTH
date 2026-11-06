@@ -513,5 +513,13 @@
   "year": "1933",
   "style": "sun",
   "country": "USA"
+ },
+ {
+  "ts": "2026-11-06T04:36+00:00",
+  "topic": "North River Steamboat (Clermont)",
+  "source": "Clermont (steamboat)",
+  "year": 1807,
+  "style": "coral",
+  "country": "USA"
  }
 ]
