@@ -545,5 +545,13 @@
   "year": 1968,
   "style": "lime",
   "country": "United Kingdom"
+ },
+ {
+  "ts": "2026-11-10T04:36+00:00",
+  "topic": "Douglas DC-3",
+  "source": "Douglas DC-3",
+  "year": 1939,
+  "style": "pink",
+  "country": "United States"
  }
 ]
