@@ -665,5 +665,13 @@
   "year": 1975,
   "style": "slab",
   "country": "United States"
+ },
+ {
+  "ts": "2026-11-25T04:37+00:00",
+  "topic": "Hughes H-4 Hercules",
+  "source": "Hughes H-4 Hercules",
+  "year": 1947,
+  "style": "ice",
+  "country": "United States"
  }
 ]
