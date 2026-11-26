@@ -673,5 +673,13 @@
   "year": 1947,
   "style": "ice",
   "country": "United States"
+ },
+ {
+  "ts": "2026-11-26T04:37+00:00",
+  "topic": "Hildebrand & Wolfmüller motorcycle",
+  "source": "Hildebrand & Wolfmüller",
+  "year": 1894,
+  "style": "lime",
+  "country": "Germany"
  }
 ]
