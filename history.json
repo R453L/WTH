@@ -681,5 +681,13 @@
   "year": 1894,
   "style": "lime",
   "country": "Germany"
+ },
+ {
+  "ts": "2026-11-27T04:37+00:00",
+  "topic": "Airbag",
+  "source": "Airbag",
+  "year": "1973",
+  "style": "sun",
+  "country": "United States"
  }
 ]
